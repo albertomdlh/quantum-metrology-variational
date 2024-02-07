@@ -24,6 +24,8 @@ from qonn_cobyla import *
 
 # DEFINITION OF FUNCTIONS
 
+# Save output data to your preferred directory
+
 def save(output, simulation_parameters):
 
     N_p = simulation_parameters[3]
@@ -45,8 +47,6 @@ def save(output, simulation_parameters):
 
     return
 
-# We also prepare the execution used, with the corresponding ansatz:
-
 def optimization(simulation_parameters, phi, delta, phi_delta, conv_tol, options):
 
     N_e = simulation_parameters[0]
@@ -62,17 +62,17 @@ def optimization(simulation_parameters, phi, delta, phi_delta, conv_tol, options
     cost_p_list = []
     cost_m_list = []
 
-    # Initial parameters preparation
+    # Initial parameters for preparation quantum circuit
     with open('params_p_qfi_cfi_kerr_coherent_N_threshold_unbound_layers=5.p', 'rb') as fp:
         parameters_p_loaded_list = pickle.load(fp)
     parameters_p = parameters_p_loaded_list[3]
 
-    # Initial parameters measurement
+    # Initial parameters for measurement quantum circuit
     with open('params_m_qfi_cfi_kerr_coherent_N_threshold_unbound_layers=5.p', 'rb') as fp:
         parameters_m_loaded_list = pickle.load(fp)
     parameters_m = parameters_m_loaded_list[3]
 
-    # JC circuit
+    # Kerr circuit
     print('======> Kerr circuit')
     start = time.time()
     for kappa in kappa_list:
@@ -92,6 +92,7 @@ def optimization(simulation_parameters, phi, delta, phi_delta, conv_tol, options
         psi_coh = psi_coh / sqrt(np.real(psi_coh[np.newaxis, :].conj() @ psi_coh[:, np.newaxis]))[0][0]
         psi_0 = np.kron(psi_coh, psi_coh)
 
+        # Preparation VQC
         res = minimize(oc.preparation_qfi, parameters_p, args=(phi, phi_delta, psi_0), method='COBYLA',
             tol=conv_tol, options=options)
 
@@ -123,6 +124,7 @@ def optimization(simulation_parameters, phi, delta, phi_delta, conv_tol, options
 
         print('Circuit evaluation done!')
 
+        # Measurement VQC
         res = minimize(oc.measurement_cfi, parameters_m, args=(rho, grad_rho), method='COBYLA',
             tol=conv_tol, options=options)
 
@@ -155,8 +157,10 @@ def execution(simulation_parameters):
     if not isinstance(layers, int):
         raise ValueError("Sorry. 'layers' must be an integer (number of parameters).")
 
-    phi = [0, pi/3, 0]
-    delta = 1e-2
+    # Interferometer parameters
+
+    phi = [0, pi/3, 0] # Phase to be estimated
+    delta = 1e-2 # Small phase difference to calculate quantum Fisher information
     phi_delta = [0, pi/3 + delta, 0]
 
     # Optimization parameters
@@ -168,17 +172,19 @@ def execution(simulation_parameters):
 
     return
 
+# Function to run in a HPC
+
 def run():
 
     # Get job id from SLURM.
     jobid = int(os.getenv('SLURM_ARRAY_TASK_ID'))
     print('jobid = ', jobid)
     print(sys.argv)
-    N_e = 2
-    N_c = 2
-    layers = 2
-    kappa_list = 10**np.linspace(-2, 0, 10)
-    N_p = int(jobid)
+    N_e = 2 # Number of emitters
+    N_c = 2 # Number of cavities
+    layers = 2 # Number of circuit layers
+    kappa_list = 10**np.linspace(-2, 0, 10) # Loss rate list
+    N_p = int(jobid) # Number of photons threshold
     print('N_p = {:}'.format(N_p))
 
     simulation_parameters = [N_e, N_c, layers, N_p, kappa_list]

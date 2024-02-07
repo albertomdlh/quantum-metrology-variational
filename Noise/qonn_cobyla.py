@@ -1,3 +1,5 @@
+# We import the modules
+
 import numpy as np
 from numpy import sqrt
 import scipy
@@ -6,6 +8,8 @@ import scipy.sparse as sp
 from scipy.sparse import linalg, csc_matrix, csr_matrix, coo_matrix
 from math import pi
 
+# Superclass representing a general variational quantum circuit
+
 class Circuit:
 
     def __init__(self):
@@ -13,6 +17,12 @@ class Circuit:
         self.operators_interf = []
 
     def eval_rho(self, parameters, rho):
+        '''
+        This function applies the unitaries of the preparation quantum circuit
+        to the input state of the algorithm.
+        "parameters" is a list of parameters, each multiplied to the generators
+        contained in the list "self.operators". "rho" is a quantum state.
+        '''
 
         for Omega, (A, B) in zip(parameters, self.operators):
             rho = sp.linalg.expm_multiply(-1j * (Omega * A + B), rho)
@@ -20,6 +30,12 @@ class Circuit:
         return rho
     
     def eval_rho_interf(self, parameters, rho):
+        '''
+        This function applies the unitaries of the interferometer
+        to the output state of the preparation VQC.
+        "parameters" is a list of parameters, each multiplied to the generators
+        contained in the list "self.operators". "rho" is a quantum state.
+        '''
 
         for Omega, (A, B) in zip(parameters, self.operators_interf):
             rho = sp.linalg.expm_multiply(-1j * (Omega * A + B), rho)
@@ -27,6 +43,14 @@ class Circuit:
         return rho
     
     def eval_rho_interf_grad(self, parameters, rho):
+        '''
+        This function applies the unitaries of the interferometer
+        to the output state of the preparation VQC, and also returns the gradient
+        with respect to the encoded phase.
+        "parameters" is a list of parameters, each multiplied to the generators
+        contained in the list "self.operators". "rho" is a quantum state.
+        '''
+
         W = [rho]
         for Omega, (A, B) in zip(parameters, self.operators_interf):
             W = [ sp.linalg.expm_multiply(-1j * (Omega * A + B), w) for w in W]
@@ -38,32 +62,44 @@ class Circuit:
         return psi_output, psi_grad[1]
     
     def eval_rho_meas(self, parameters, rho):
+        '''
+        This function applies the unitaries of the preparation quantum circuit
+        to the output state of the phase encoding process.
+        "parameters" is a list of parameters, each multiplied to the generators
+        contained in the list "self.operators". "rho" is a quantum state.
+        '''
 
         for Omega, (A, B) in zip(parameters, self.operators_meas):
             rho = sp.linalg.expm_multiply(-1j * (Omega * A + B), rho)
         
         return rho
+    
+# We now particularize the superclass above for the emitters (Jaynes-Cummings like) variational quantum circuit
 
 class JCMeasCircuit(Circuit):
 
     def __init__(self, setup, layers_p, layers_m, delta, kappa):
         super().__init__
-        self.layers_p = layers_p
-        self.layers_m = layers_m
-        self.setup = setup
-        self.operators = self.layers_p*[(setup.H_t(), 0), (setup.H_e(), 0), (setup.H_int(), 0)]
+        self.layers_p = layers_p # Number of preparation layers
+        self.layers_m = layers_m # Number of measurement layers
+        self.setup = setup # Loads setup class with all predifined quantum gates and generators
+        self.operators = self.layers_p*[(setup.H_t(), 0), (setup.H_e(), 0), (setup.H_int(), 0)] # Operators for preparation VQC
         self.operators_interf = [(0*sp.eye(setup.d, dtype=np.complex128), setup.H_BS_sym_ec()),
          (setup.H_phi_ec(), 0),
-         (0*sp.eye(setup.d, dtype=np.complex128), setup.H_BS_sym_ec())]
-        self.basis_e = csc_matrix(np.eye(2**setup.N_e, dtype=np.complex128))
-        self.basis_c = csc_matrix(np.eye(setup.d_c, dtype=np.complex128))
-        self.delta = delta
-        self.operators_meas = self.layers_m*[(setup.H_t_vec(), 0), (setup.H_e_vec(), 0), (setup.H_int_vec(), 0)]
+         (0*sp.eye(setup.d, dtype=np.complex128), setup.H_BS_sym_ec())] # Operators for interferometer (phase encoding)
+        self.basis_e = csc_matrix(np.eye(2**setup.N_e, dtype=np.complex128)) # Emitters basis for tracing out degrees of freedom and calculating reduced density matrices
+        self.basis_c = csc_matrix(np.eye(setup.d_c, dtype=np.complex128))  # Cavity (photons) basis for tracing out degrees of freedom and calculating reduced density matrices
+        self.delta = delta # Small parameter to calculate quantum Fisher information
+        self.operators_meas = self.layers_m*[(setup.H_t_vec(), 0), (setup.H_e_vec(), 0), (setup.H_int_vec(), 0)] # Operators for measurement VQC
+        
+        # Lindbladian for amplitude damping noise (to be applied to vectorized density matrices)
         L_ad = 0.0
         for k in range(setup.N_c):
             L_ad += kappa*(sp.kron(setup.a_i(k).conj(), setup.a_i(k)) - 0.5*sp.kron(sp.eye(setup.d, dtype=np.complex128),
                 setup.a_i(k).H @ setup.a_i(k)) - 0.5*sp.kron((setup.a_i(k).H @ setup.a_i(k)).transpose(), sp.eye(setup.d, dtype=np.complex128)))
         self.L_ad = L_ad
+
+        # Lindbladian for phase damping noise (to be applied to vectorized density matrices)
         L_pd = 0.0
         for k in range(setup.N_c):
             L_pd += kappa*(sp.kron(setup.n_i(k).conj(), setup.n_i(k)) - 0.5*sp.kron(sp.eye(setup.d, dtype=np.complex128),
@@ -115,25 +151,31 @@ class JCMeasCircuit(Circuit):
         I = np.sum(1/np.diag(rho + 1e-30) * np.diag(grad_rho)**2)
 
         return - np.real(I)
+    
+# We now particularize the superclass above for the Kerr non-linearity variational quantum circuit
 
 class KerrMeasCircuit(Circuit):
 
     def __init__(self, setup, layers_p, layers_m, delta, kappa):
         super().__init__
-        self.layers_p = layers_p
-        self.layers_m = layers_m
-        self.setup = setup
-        self.operators = self.layers_p*[(setup.H_BS(), 0), (setup.H_Kerr(), 0)]
+        self.layers_p = layers_p # Number of preparation layers
+        self.layers_m = layers_m # Number of measurement layers
+        self.setup = setup # Loads setup class with all predifined quantum gates and generators
+        self.operators = self.layers_p*[(setup.H_BS(), 0), (setup.H_Kerr(), 0)] # Operators for preparation VQC
         self.operators_interf = [(0*sp.eye(setup.d_c, dtype=np.complex128), setup.H_BS_sym()),
          (setup.H_phi(), 0),
-         (0*sp.eye(setup.d_c, dtype=np.complex128), setup.H_BS_sym())]
-        self.delta = delta
-        self.operators_meas = self.layers_m*[(setup.H_BS_vec(), 0), (setup.H_Kerr_vec(), 0)]
+         (0*sp.eye(setup.d_c, dtype=np.complex128), setup.H_BS_sym())] # Operators for interferometer (phase encoding)
+        self.delta = delta # Small parameter to calculate quantum Fisher information
+        self.operators_meas = self.layers_m*[(setup.H_BS_vec(), 0), (setup.H_Kerr_vec(), 0)] # Operators for measurement VQC
+        
+        # Lindbladian for amplitude damping noise (to be applied to vectorized density matrices)
         L_ad = 0.0
         for k in range(setup.N_c):
             L_ad += kappa*(sp.kron(setup.a_c(k).conj(), setup.a_c(k)) - 0.5*sp.kron(sp.eye(setup.d_c, dtype=np.complex128),
                 setup.a_c(k).H @ setup.a_c(k)) - 0.5*sp.kron((setup.a_c(k).H @ setup.a_c(k)).transpose(), sp.eye(setup.d_c, dtype=np.complex128)))
         self.L_ad = L_ad
+
+        # Lindbladian for phase damping noise (to be applied to vectorized density matrices)
         L_pd = 0.0
         for k in range(setup.N_c):
             L_pd += kappa*(sp.kron(setup.n_c(k).conj(), setup.n_c(k)) - 0.5*sp.kron(sp.eye(setup.d_c, dtype=np.complex128),
@@ -186,16 +228,16 @@ class KerrMeasCircuit(Circuit):
 
         return - np.real(I)
 
-
+# The class below contains all necessary quantum gates and generators
 
 class Setup:
 
     def __init__(self, N_e, N_c, N_p):
         self.N_e = N_e # Number of emitters
         self.N_c = N_c # Number of cavities
-        self.N_p = N_p # Photon threshold per cavity
-        self.d_e = 2**self.N_e
-        self.d_c = (self.N_p+1)**self.N_c # Cavities Hilbert space dimension
+        self.N_p = N_p # # Number of photons threshold
+        self.d_e = 2**self.N_e # Emitters Hilbert space dimension
+        self.d_c = (self.N_p+1)**self.N_c # Cavities (photons) Hilbert space dimension
         self.d = 2**self.N_e*(self.N_p+1)**self.N_c # Total Hilbert space dimension
 
     def Sm(self):
@@ -390,7 +432,7 @@ class Setup:
     def n_i(self, i):
         '''
         Local cavity number operator acting on cavity i in the
-        cavities Hilbert subspace.
+        total cavities + emitters Hilbert space.
         '''
 
         n = self.a_i(i).H @ self.a_i(i)
@@ -428,7 +470,7 @@ class Setup:
     
     def H_t_vec(self):
 
-        # Tunneling
+        # Tunneling vectorized to use with density matrices living in the emitters + cavities Hilbert space
         H_t = 0
         for i in range(self.N_c):
             for j in range(i+1, self.N_c):
@@ -439,7 +481,7 @@ class Setup:
     
     def H_e(self):
 
-        # Emitters
+        # Emitters-cavity detuning
         H_e = 0.0
         for i in range(self.N_e):
             H_e += self.Sm_i(i).H @ self.Sm_i(i)
@@ -448,7 +490,7 @@ class Setup:
     
     def H_e_vec(self):
 
-        # Emitters
+        # Emitters-cavity detuning vectorized to use with density matrices living in the emitters + cavities Hilbert space
         H_e = 0.0
         for i in range(self.N_e):
             H_e += self.Sm_i(i).H @ self.Sm_i(i)
@@ -457,7 +499,7 @@ class Setup:
 
     def H_c(self):
 
-        # Cavities
+        # Cavities mode frequency
         H_c = 0
         for i in range(self.N_c):
             H_c += self.a_i(i).H @ self.a_i(i)
@@ -466,7 +508,7 @@ class Setup:
     
     def H_c_vec(self):
 
-        # Cavities
+        # Cavities mode frequency vectorized to use with density matrices living in the emitters + cavities Hilbert space
         H_c = 0
         for i in range(self.N_c):
             H_c += self.a_i(i).H @ self.a_i(i)
@@ -475,7 +517,7 @@ class Setup:
 
     def H_int(self):
 
-        # Interaction
+        # Emitters-photon interaction
         H_int = 0
         for i in range(self.N_e):
             H_int += self.Sm_i(i) @ self.a_i(i).H + self.Sm_i(i).H @ self.a_i(i)
@@ -484,7 +526,7 @@ class Setup:
     
     def H_int_vec(self):
 
-        # Interaction
+        # Emitters-photon interaction vectorized to use with density matrices living in the emitters + cavities Hilbert space
         H_int = 0
         for i in range(self.N_e):
             H_int += self.Sm_i(i) @ self.a_i(i).H + self.Sm_i(i).H @ self.a_i(i)
@@ -503,7 +545,7 @@ class Setup:
     
     def H_BS_vec(self):
         '''
-        Generator of the two-modes beamsplitter for vectorized density matrix.
+        Generator of the two-modes beamsplitter for vectorized density matrix (cavity Hilbert space).
         '''
 
         # 2 modes only
@@ -523,7 +565,7 @@ class Setup:
     
     def H_BS_ec_vec(self):
         '''
-        Generator of the two-modes beamsplitter (emitters + cavity Hilbert space).
+        Generator of the two-modes beamsplitter for vectorized density matrices (emitters + cavity Hilbert space).
         '''
 
         # 2 modes only
@@ -543,7 +585,7 @@ class Setup:
     
     def H_BS_sym_vec(self):
         '''
-        Generator of the two-modes symmetric beamsplitter for vectorized density matrix.
+        Generator of the two-modes symmetric beamsplitter for vectorized density matrix (cavity Hilbert space).
         '''
 
         # 2 modes only
@@ -563,7 +605,7 @@ class Setup:
     
     def H_BS_sym_ec_vec(self):
         '''
-        Generator of the two-modes symmetric beamsplitter (emitters + cavity Hilbert space).
+        Generator of the two-modes symmetric beamsplitter for vectorized density matrices (emitters + cavity Hilbert space).
         '''
 
         # 2 modes only
@@ -603,7 +645,7 @@ class Setup:
     
     def H_phi_ec_vec(self):
         '''
-        Generator of the phase shift (emitters + cavity Hilbert space).
+        Generator of the phase shift for vectorized density matrices (emitters + cavity Hilbert space).
         '''
 
         # 2 modes only
@@ -639,7 +681,7 @@ class Setup:
         return H
     
     def H_Kerr_ec_vec(self):
-        'Generator of the Kerr interaction in the joint emitters + cavities Hilbert space.'
+        'Generator of the Kerr interaction for vectorized density matrices in the joint emitters + cavities Hilbert space.'
 
         H = 0
         for i in range(self.N_c):
@@ -657,6 +699,10 @@ class Setup:
         return 0.5*H
     
     def L_emitters_ad(self):
+        '''
+        Lindbladian for amplitude damping in the cavity + emitters Hilbert space.
+        To be applied to vectorized density matrices.
+        '''
     
         L = 0.0
         for k in range(self.N_c):
@@ -666,7 +712,11 @@ class Setup:
         return L
     
     def L_emitters_pd(self):
-    
+        '''
+        Lindbladian for phase damping in the cavity + emitters Hilbert space.
+        To be applied to vectorized density matrices.
+        '''
+
         L = 0.0
         for k in range(self.N_c):
             L += sp.kron(self.n_i(k).conj(), self.n_i(k)) - 0.5*sp.kron(sp.eye(self.d, dtype=np.complex128),
@@ -675,6 +725,10 @@ class Setup:
         return L
     
     def L_Kerr_ad(self):
+        '''
+        Lindbladian for amplitude damping in the cavity (only photons) Hilbert space.
+        To be applied to vectorized density matrices.
+        '''
     
         L = 0.0
         for k in range(self.N_c):
@@ -684,6 +738,10 @@ class Setup:
         return L
     
     def L_Kerr_pd(self):
+        '''
+        Lindbladian for phase damping in the cavity (only photons) Hilbert space.
+        To be applied to vectorized density matrices.
+        '''
     
         L = 0.0
         for k in range(self.N_c):
@@ -728,128 +786,3 @@ class Setup:
             H = self.H_S_i(i) + H
         return H
     
-    def finite_zeros_c(self):
-
-        basis = []
-        for j in range(self.n+1):
-            cavity_1 = np.zeros(self.N_p+1, dtype=np.complex128)
-            cavity_1[j] = 1   
-            for k in range(self.n+1-j):
-                cavity_2 = np.zeros(self.N_p+1, dtype=np.complex128)
-                cavity_2[k] = 1
-                cavities = np.kron(cavity_1, cavity_2)
-                basis.append(cavities)
-        basis = np.array(basis)
-
-        projector = 0
-        for i in range(len(basis)):
-            vec = basis[i]
-            projector += vec[:, np.newaxis] @ vec[np.newaxis, :]
-
-        P_sum = np.sum(projector, axis=0)
-        P_finite = np.where(np.abs(P_sum) > 0)[0]
-        P_zeros = np.where(P_sum == 0)[0]
-
-        return P_finite, P_zeros
-    
-    def finite_zeros_ec(self):
-
-        basis = []
-        for j in range(self.n+1):
-            cavity_1 = np.zeros(self.N_p+1, dtype=np.complex128)
-            cavity_1[j] = 1   
-            for k in range(self.n+1-j):
-                cavity_2 = np.zeros(self.N_p+1, dtype=np.complex128)
-                cavity_2[k] = 1
-                cavities = np.kron(cavity_1, cavity_2)
-                basis.append(cavities)
-        basis = np.array(basis)
-
-        projector = 0
-        for i in range(len(basis)):
-            vec = basis[i]
-            projector += vec[:, np.newaxis] @ vec[np.newaxis, :]
-
-        P_ec = np.kron(np.eye(2**self.N_e, dtype=np.complex128), projector)
-
-        P_sum = np.sum(P_ec, axis=0)
-        P_finite = np.where(np.abs(P_sum) > 0)[0]
-        P_zeros = np.where(P_sum == 0)[0]
-
-        return P_finite, P_zeros
-    
-    def P_c(self, operator):
-        '''
-        Reduces the number of degrees of freedom of the Hilbert sub-space of
-        cavities to account for the conservation of the number of excitations.
-        '''
-
-        basis = []
-        for j in range(self.n+1):
-            cavity_1 = np.zeros(self.N_p+1, dtype=np.complex128)
-            cavity_1[j] = 1   
-            for k in range(self.n+1-j):
-                cavity_2 = np.zeros(self.N_p+1, dtype=np.complex128)
-                cavity_2[k] = 1
-                cavities = np.kron(cavity_1, cavity_2)
-                basis.append(cavities)
-        basis = np.array(basis)
-
-        projector = 0
-        for i in range(len(basis)):
-            vec = basis[i]
-            projector += vec[:, np.newaxis] @ vec[np.newaxis, :]
-
-        P_sum = np.sum(projector, axis=0)
-        P_zeros = np.where(P_sum == 0)[0]
-
-
-        #operator = operator.toarray()
-        count = 0
-        for i in P_zeros:
-            operator = np.delete(operator, i-count, axis=0)
-            operator = np.delete(operator, i-count, axis=1)
-            count += 1
-
-        #return csc_matrix(operator)
-        return operator
-
-    def P_ec(self, operator):
-        '''
-        Reduces the number of degrees of freedom of the total Hilbert space of
-        emitters + cavities to account for the conservation of the number of excitations.
-        '''
-
-        basis = []
-        for j in range(self.n+1):
-            cavity_1 = np.zeros(self.N_p+1, dtype=np.complex128)
-            cavity_1[j] = 1   
-            for k in range(self.n+1-j):
-                cavity_2 = np.zeros(self.N_p+1, dtype=np.complex128)
-                cavity_2[k] = 1
-                cavities = np.kron(cavity_1, cavity_2)
-                basis.append(cavities)
-        basis = np.array(basis)
-
-        projector = 0
-        for i in range(len(basis)):
-            vec = basis[i]
-            projector += vec[:, np.newaxis] @ vec[np.newaxis, :]
-
-        P_ec = np.kron(np.eye(2**self.N_e, dtype=np.complex128), projector)
-
-        P_sum = np.sum(P_ec, axis=0)
-        P_zeros = np.where(P_sum == 0)[0]
-
-
-        #operator = operator.toarray()
-        count = 0
-        for i in P_zeros:
-            operator = np.delete(operator, i-count, axis=0)
-            operator = np.delete(operator, i-count, axis=1)
-            count += 1
-
-        #return csc_matrix(operator)
-        return operator
-
-

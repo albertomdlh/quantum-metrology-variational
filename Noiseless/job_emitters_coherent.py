@@ -97,6 +97,7 @@ def optimization(simulation_parameters, N_p_list, phi, delta, phi_delta, max_ite
         # Total initial state
         psi_0 = np.kron(emitters, psi_0)
 
+        # Preparation VQC
         res = minimize(oc.preparation_qfi, parameters_p, args=(phi, phi_delta, psi_0), method='COBYLA',
             tol=conv_tol, options=options)
 
@@ -146,7 +147,7 @@ def execution(simulation_parameters):
     if not isinstance(layers, int):
         raise ValueError("Sorry. 'layers' must be an integer (number of parameters).")
 
-    N_p_list = np.arange(4, 104, 4) # Photon threshold per cavity
+    N_p_list = np.arange(4, 104, 4) # Number of photons threshold
 
     # Interferometer parameters
 
@@ -173,7 +174,7 @@ def run():
     print(sys.argv)
     N_e = int(sys.argv[1]) # Number of emitters
     N_c = int(sys.argv[2]) # Number of cavities
-    layers = int(jobid) 
+    layers = int(jobid) # Number of circuit layers
 
     simulation_parameters = [N_e, N_c, layers]
 

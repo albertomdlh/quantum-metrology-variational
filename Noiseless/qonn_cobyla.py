@@ -132,7 +132,7 @@ class KerrMeasCircuit(Circuit):
         self.layers_p = layers_p # Number of preparation layers
         self.layers_m = layers_m # Number of measurement layers
         self.setup = setup # Loads setup class with all predifined quantum gates and generators
-        self.operators = self.layers_p*[(setup.H_BS(), 0), (setup.H_Kerr(), 0)]
+        self.operators = self.layers_p*[(setup.H_BS(), 0), (setup.H_Kerr(), 0)] # Operators for preparation VQC
         self.operators_interf = [(0*sp.eye(setup.d_c, dtype=np.complex128), setup.H_BS_sym()),
          (setup.H_phi(), 0),
          (0*sp.eye(setup.d_c, dtype=np.complex128), setup.H_BS_sym())] # Operators for interferometer (phase encoding)
@@ -178,7 +178,7 @@ class Setup:
     def __init__(self, N_e, N_c, N_p):
         self.N_e = N_e # Number of emitters
         self.N_c = N_c # Number of cavities
-        self.N_p = N_p # Photon threshold per cavity
+        self.N_p = N_p # Number of photons threshold
         self.d_e = 2**self.N_e # Emitters Hilbert space dimension
         self.d_c = (self.N_p+1)**self.N_c # Cavities (photons) Hilbert space dimension
         self.d = 2**self.N_e*(self.N_p+1)**self.N_c # Total Hilbert space dimension

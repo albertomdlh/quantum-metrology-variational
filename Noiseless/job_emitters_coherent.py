@@ -24,6 +24,8 @@ from qonn_cobyla import *
 
 # DEFINITION OF FUNCTIONS
 
+# Save output data to your preferred directory
+
 def save(output, simulation_parameters):
 
     layers = simulation_parameters[2]
@@ -45,8 +47,6 @@ def save(output, simulation_parameters):
 
     return
 
-# We also prepare the execution used, with the corresponding ansatz:
-
 def optimization(simulation_parameters, N_p_list, phi, delta, phi_delta, max_iter, conv_tol, options):
 
     N_e = simulation_parameters[0]
@@ -60,11 +60,11 @@ def optimization(simulation_parameters, N_p_list, phi, delta, phi_delta, max_ite
     cost_p_list = []
     cost_m_list = []
 
-    # Initial parameters preparation
+    # Initial parameters for preparation quantum circuit
     np.random.seed(1234)
     parameters_p = np.array(0.1*(rand(3*layers_p)-0.5), dtype=np.float64)
 
-    # Initial parameters measurement
+    # Initial parameters for measurement quantum circuit
     np.random.seed(1996)
     parameters_m = np.array(0.1*(rand(3*layers_m)-0.5), dtype=np.float64)
 
@@ -94,6 +94,7 @@ def optimization(simulation_parameters, N_p_list, phi, delta, phi_delta, max_ite
         for i in range(N_e):
             emitters = np.kron(emitters, emitter)
 
+        # Total initial state
         psi_0 = np.kron(emitters, psi_0)
 
         res = minimize(oc.preparation_qfi, parameters_p, args=(phi, phi_delta, psi_0), method='COBYLA',
@@ -112,6 +113,7 @@ def optimization(simulation_parameters, N_p_list, phi, delta, phi_delta, max_ite
 
         print('Circuit evaluation done!')
 
+        # Measurement VQC
         res = minimize(oc.measurement_cfi, parameters_m, args=(psi, grad_psi), method='COBYLA',
             tol=conv_tol, options=options)
 
@@ -146,8 +148,10 @@ def execution(simulation_parameters):
 
     N_p_list = np.arange(4, 104, 4) # Photon threshold per cavity
 
-    phi = [0, pi/3, 0]
-    delta = 1e-2
+    # Interferometer parameters
+
+    phi = [0, pi/3, 0] # Phase to be estimated
+    delta = 1e-2 # Small phase difference to calculate quantum Fisher information
     phi_delta = [0, pi/3 + delta, 0]
 
     # Optimization parameters
@@ -158,6 +162,8 @@ def execution(simulation_parameters):
     optimization(simulation_parameters, N_p_list, phi, delta, phi_delta, max_iter, conv_tol, options)
 
     return
+
+# Function to run in a HPC
 
 def run():
 
